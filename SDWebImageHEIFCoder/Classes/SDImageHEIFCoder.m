@@ -23,6 +23,8 @@ typedef enum heif_chroma heif_chroma;
 typedef enum heif_channel heif_channel;
 typedef enum heif_colorspace heif_colorspace;
 
+SDImageCoderOption const SDImageCoderDecodeThumbnailOnly = @"SDImageCoderDecodeThumbnailOnly";
+
 static int HEIFMaxThumbnailPixelSize = 320; // Max Limit to thumbnail. This value is from Image/IO decompile result, which is also hardcoded :)
 
 static heif_error WriteImageData(heif_context * ctx, const void * data, size_t size, void * userdata) {
@@ -124,8 +126,15 @@ static CGSize SDCalculateThumbnailSize(CGSize fullSize, BOOL preserveAspectRatio
         preserveAspectRatio = preserveAspectRatioValue.boolValue;
     }
     
+    BOOL decodeThumbnailOnly = NO;
+    NSNumber *decodeThumbnailOnlyValue = options[SDImageCoderDecodeThumbnailOnly];
+    if (decodeThumbnailOnlyValue != nil) {
+        decodeThumbnailOnly = decodeThumbnailOnlyValue.boolValue;
+    }
+    
     // Currently only support primary image :)
-    CGImageRef imageRef = [self sd_createHEIFImageWithData:data thumbnailSize:thumbnailSize preserveAspectRatio:preserveAspectRatio];
+    CGImageRef imageRef = [self sd_createHEIFImageWithData:data thumbnailSize:thumbnailSize preserveAspectRatio:preserveAspectRatio
+        decodeThumbnailOnly:decodeThumbnailOnly];
     if (!imageRef) {
         return nil;
     }
@@ -141,7 +150,8 @@ static CGSize SDCalculateThumbnailSize(CGSize fullSize, BOOL preserveAspectRatio
 }
 
 // Only decode the primary image (HEIF also support tied-image and animated image)
-- (nullable CGImageRef)sd_createHEIFImageWithData:(nonnull NSData *)data thumbnailSize:(CGSize)thumbnailSize preserveAspectRatio:(BOOL)preserveAspectRatio CF_RETURNS_RETAINED {
+- (nullable CGImageRef)sd_createHEIFImageWithData:(nonnull NSData *)data thumbnailSize:(CGSize)thumbnailSize preserveAspectRatio:(BOOL)preserveAspectRatio decodeThumbnailOnly:(BOOL)decodeThumbnailOnly
+CF_RETURNS_RETAINED {
     heif_context* ctx = heif_context_alloc();
     if (!ctx) {
         return nil;
@@ -163,6 +173,7 @@ static CGSize SDCalculateThumbnailSize(CGSize fullSize, BOOL preserveAspectRatio
         return nil;
     }
     
+    BOOL hasValidThubmnail = NO;
     // check thumbnail firstly
     if (thumbnailSize.width > 0 && thumbnailSize.height > 0) {
         heif_item_id thumbnailID;
@@ -183,13 +194,15 @@ static CGSize SDCalculateThumbnailSize(CGSize fullSize, BOOL preserveAspectRatio
                 heif_image_handle_release(thumbnailHandle);
             } else {
                 // else, the thumbnail is large enough to directly use
+                hasValidThubmnail = YES;
                 heif_image_handle_release(handle);
                 handle = thumbnailHandle;
             }
         }
     }
     
-    CGImageRef imageRef = [self sd_createFrameWithImageHandle:handle thumbnailSize:thumbnailSize preserveAspectRatio:preserveAspectRatio];
+    BOOL canCreateImage = !decodeThumbnailOnly || hasValidThubmnail;
+    CGImageRef imageRef = canCreateImage ? [self sd_createFrameWithImageHandle:handle thumbnailSize:thumbnailSize preserveAspectRatio:preserveAspectRatio] : nil;
     
     // clean up
     heif_image_handle_release(handle);
